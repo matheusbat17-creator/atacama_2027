@@ -22,7 +22,7 @@
 }
 
 *{box-sizing:border-box;}
-html,body{margin:0;padding:0;}
+html,body{margin:0;padding:0; max-width:100vw; overflow-x:hidden;}
 body{
   font-family: var(--font-body);
   background: var(--sand);
@@ -73,11 +73,13 @@ body{
 /* ---------- APP SHELL ---------- */
 .app{
   max-width: 480px;
+  width:100%;
   margin: 0 auto;
   min-height: 100vh;
   display:flex;
   flex-direction:column;
   background: var(--sand);
+  overflow-x:hidden;
 }
 
 .topbar{
@@ -124,7 +126,7 @@ body{
 
 /* ---------- CARDS / PANELS ---------- */
 .cards-grid{
-  display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:16px;
+  display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:10px; margin-bottom:16px;
 }
 .stat-card{
   background:#fff; border-radius: var(--radius); padding:14px;
@@ -190,6 +192,8 @@ body{
 .item-card.status-confirmado, .item-card.status-pago, .item-card.status-concluido{ border-left-color: var(--ok); }
 
 .item-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.item-top > div:first-child{ flex:1; min-width:0; }
+.item-title{ overflow-wrap:break-word; }
 .item-title{ font-weight:700; font-size:15.5px; color: var(--night-2); margin:0 0 2px; font-family: var(--font-display); }
 .item-sub{ font-size:12.5px; color: var(--muted); margin:0; }
 .item-price{ font-weight:700; font-size:14px; color: var(--terracotta); white-space:nowrap; }
@@ -288,14 +292,21 @@ body{
 .modal-close{ background:none; border:none; font-size:18px; color: var(--muted); cursor:pointer; padding:4px 8px; }
 .modal-body{ padding:18px; }
 
-.form-row{ margin-bottom:14px; }
+.form-row{ margin-bottom:14px; min-width:0; }
 .form-row label{ display:block; font-size:12.5px; font-weight:700; color: var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.02em;}
 .form-row input, .form-row select, .form-row textarea{
-  width:100%; padding:11px; border-radius:10px; border:1px solid var(--sand-2);
+  width:100%; min-width:0; max-width:100%; padding:11px; border-radius:10px; border:1px solid var(--sand-2);
   font-size:14.5px; background: var(--sand); color: var(--ink); font-family:inherit;
+  -webkit-appearance:none; appearance:none;
+}
+.form-row input[type="date"], .form-row input[type="time"], .form-row input[type="datetime-local"]{
+  -webkit-appearance:auto; appearance:auto; /* mantém o seletor nativo, mas sem forçar largura mínima extra */
 }
 .form-row textarea{ min-height:70px; resize:vertical; }
-.form-grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+/* min-width:0 evita que inputs nativos (data/hora/número) estourem a largura da coluna no Safari do iPhone,
+   forçando o conteúdo inteiro a rolar para os lados. */
+.form-grid-2{ display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:10px; }
+.form-grid-2 > .form-row{ min-width:0; overflow:hidden; }
 
 .modal-footer{ display:flex; gap:10px; margin-top:6px; }
 .modal-footer button{ flex:1; padding:13px; border-radius:12px; font-weight:700; font-size:14.5px; border:none; cursor:pointer; }
