@@ -312,6 +312,7 @@ body{
 .confirm-actions button{ flex:1; padding:11px; border-radius:10px; border:none; font-weight:700; font-size:13.5px; cursor:pointer; }
 .confirm-cancel{ background: var(--sand); color: var(--ink); }
 .confirm-ok{ background: var(--danger); color:#fff; }
+.confirm-ok.warning{ background: var(--gold); color: var(--ink); }
 
 /* ---------- TOAST ---------- */
 .toast{

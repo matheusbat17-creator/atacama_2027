@@ -381,11 +381,30 @@ function openFlightModal(f = {}) {
       codigo_reserva: val("f-cod"), notas: val("f-notas"), updated_at: new Date().toISOString(),
     };
     if (!payload.origem || !payload.destino) return toast("Informe origem e destino");
-    let error;
-    if (f.id) ({ error } = await sb.from("flights").update(payload).eq("id", f.id));
-    else ({ error } = await sb.from("flights").insert(payload));
+
+    if (payload.data_partida) {
+      const [date, time] = payload.data_partida.split("T");
+      const startMin = hhmmToMinutes(time?.slice(0, 5));
+      if (startMin != null) {
+        let endMin = startMin + 60;
+        if (payload.data_chegada) {
+          const [dateE, timeE] = payload.data_chegada.split("T");
+          if (dateE === date) endMin = Math.max(hhmmToMinutes(timeE.slice(0, 5)), startMin + 1);
+        }
+        const conflicts = findConflicts(date, startMin, endMin, f.id ? { type: "flight", id: f.id } : null);
+        if (conflicts.length) {
+          const ok = await askConflictWarning(conflictMessage(conflicts));
+          if (!ok) return;
+        }
+      }
+    }
+
+    let error, saved;
+    if (f.id) ({ data: saved, error } = await sb.from("flights").update(payload).eq("id", f.id).select().single());
+    else ({ data: saved, error } = await sb.from("flights").insert(payload).select().single());
     if (error) return toast("Erro ao salvar voo");
     closeModal(); toast("Voo salvo"); await loadFlights(); renderFlights(); renderResumo(); renderBudget();
+    if (saved) await syncItineraryForFlight(saved);
   });
 
   if (f.id) document.getElementById("f-del").addEventListener("click", () => confirmDelete("flights", f.id, loadFlights, () => { renderFlights(); renderResumo(); renderBudget(); }, true));
@@ -511,7 +530,7 @@ function openTourModal(t = {}) {
     </div>
     <div class="form-grid-2">
       <div class="form-row"><label>Data</label><input type="date" id="t-data" value="${t.data || ""}"/></div>
-      <div class="form-row"><label>Horário</label><input id="t-horario" placeholder="ex: 15h30" value="${t.horario || ""}"/></div>
+      <div class="form-row"><label>Horário de início</label><input type="time" id="t-horario" value="${/^\d{2}:\d{2}$/.test(t.horario || "") ? t.horario : ""}"/></div>
     </div>
     <div class="form-grid-2">
       <div class="form-row"><label>Duração (h)</label><input type="number" step="0.5" id="t-duracao" value="${t.duracao_horas ?? ""}"/></div>
@@ -536,11 +555,26 @@ function openTourModal(t = {}) {
       agencia: val("t-agencia"), notas: val("t-notas"), updated_at: new Date().toISOString(),
     };
     if (!payload.nome) return toast("Informe o nome do passeio");
-    let error;
-    if (t.id) ({ error } = await sb.from("tours").update(payload).eq("id", t.id));
-    else ({ error } = await sb.from("tours").insert(payload));
+
+    if (payload.data && payload.horario) {
+      const startMin = hhmmToMinutes(payload.horario);
+      if (startMin != null) {
+        const dur = Number(payload.duracao_horas) || 1;
+        const endMin = startMin + dur * 60;
+        const conflicts = findConflicts(payload.data, startMin, endMin, t.id ? { type: "tour", id: t.id } : null);
+        if (conflicts.length) {
+          const ok = await askConflictWarning(conflictMessage(conflicts));
+          if (!ok) return;
+        }
+      }
+    }
+
+    let error, saved;
+    if (t.id) ({ data: saved, error } = await sb.from("tours").update(payload).eq("id", t.id).select().single());
+    else ({ data: saved, error } = await sb.from("tours").insert(payload).select().single());
     if (error) return toast("Erro ao salvar passeio");
     closeModal(); toast("Passeio salvo"); await loadTours(); renderTours(); renderResumo(); renderBudget();
+    if (saved) await syncItineraryForTour(saved);
   });
   if (t.id) document.getElementById("t-del").addEventListener("click", () => confirmDelete("tours", t.id, loadTours, () => { renderTours(); renderResumo(); renderBudget(); renderDays(); }, true));
 }
@@ -752,7 +786,7 @@ function openExpenseModal(e = {}) {
 // ================= SHARED HELPERS =================
 function emptyState(msg) { return `<div class="empty-state">${msg}</div>`; }
 
-function askConfirm(message) {
+function askConfirmCustom(message, okLabel, cancelLabel, tone = "default") {
   return new Promise((resolve) => {
     const wrap = document.createElement("div");
     wrap.className = "confirm-overlay";
@@ -760,8 +794,8 @@ function askConfirm(message) {
       <div class="confirm-box">
         <p>${message}</p>
         <div class="confirm-actions">
-          <button class="confirm-cancel" type="button">Cancelar</button>
-          <button class="confirm-ok" type="button">Excluir</button>
+          <button class="confirm-cancel" type="button">${cancelLabel}</button>
+          <button class="confirm-ok ${tone === "warning" ? "warning" : ""}" type="button">${okLabel}</button>
         </div>
       </div>`;
     document.body.appendChild(wrap);
@@ -769,16 +803,154 @@ function askConfirm(message) {
     wrap.querySelector(".confirm-ok").addEventListener("click", () => { wrap.remove(); resolve(true); });
   });
 }
+function askConfirm(message) { return askConfirmCustom(message, "Excluir", "Cancelar"); }
+function askConflictWarning(message) { return askConfirmCustom(message, "Salvar mesmo assim", "Ajustar horário", "warning"); }
 
 async function confirmDelete(table, id, reload, rerender, closeModalAfter = false) {
   const ok = await askConfirm("Tem certeza que deseja excluir este item?");
   if (!ok) return;
   const { error } = await sb.from(table).delete().eq("id", id);
   if (error) return toast("Erro ao excluir");
+  // Se o item excluído tinha um espelho no roteiro (voo ou passeio), remove de lá também.
+  if (table === "flights" || table === "tours") {
+    const col = table === "flights" ? "flight_id" : "tour_id";
+    await sb.from("itinerary_items").delete().eq(col, id);
+    await loadDaysAndItems();
+    renderDays();
+  }
   if (closeModalAfter) closeModal();
   toast("Excluído");
   await reload();
   rerender();
+}
+
+// ================= HORÁRIOS, CONFLITOS E SINCRONIA COM O ROTEIRO =================
+function hhmmToMinutes(str) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || "").trim());
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function formatRange(startMin, endMin) {
+  const fmt = (m) => {
+    const mm = ((m % 1440) + 1440) % 1440;
+    return `${String(Math.floor(mm / 60)).padStart(2, "0")}:${String(Math.floor(mm % 60)).padStart(2, "0")}`;
+  };
+  return `${fmt(startMin)}–${fmt(endMin)}`;
+}
+
+function tourToInterval(t) {
+  if (!t.data || !t.horario) return null;
+  const start = hhmmToMinutes(t.horario);
+  if (start == null) return null;
+  const dur = Number(t.duracao_horas) || 1;
+  const end = start + dur * 60;
+  return { date: t.data, start, end, label: `⛰ ${t.nome}`, range: formatRange(start, end) };
+}
+
+function flightToInterval(f) {
+  if (!f.data_partida) return null;
+  const [date, time] = f.data_partida.split("T");
+  const start = hhmmToMinutes((time || "").slice(0, 5));
+  if (start == null) return null;
+  let end = start + 60;
+  if (f.data_chegada) {
+    const [dateE, timeE] = f.data_chegada.split("T");
+    if (dateE === date) end = Math.max(hhmmToMinutes(timeE.slice(0, 5)), start + 1);
+  }
+  return { date, start, end, label: `✈ ${f.origem} → ${f.destino}`, range: formatRange(start, end) };
+}
+
+// Procura, entre os voos e passeios já cadastrados no mesmo dia, algum que
+// se sobreponha ao intervalo [start,end) informado. "exclude" evita comparar
+// o item com ele mesmo quando está sendo editado.
+function findConflicts(date, start, end, exclude = null) {
+  const intervals = [];
+  state.tours.forEach((t) => {
+    if (exclude?.type === "tour" && exclude.id === t.id) return;
+    const iv = tourToInterval(t);
+    if (iv && iv.date === date) intervals.push(iv);
+  });
+  state.flights.forEach((f) => {
+    if (exclude?.type === "flight" && exclude.id === f.id) return;
+    const iv = flightToInterval(f);
+    if (iv && iv.date === date) intervals.push(iv);
+  });
+  return intervals.filter((iv) => iv.start < end && iv.end > start);
+}
+
+function conflictMessage(conflicts) {
+  const lista = conflicts.map((c) => `"${c.label.replace(/^[⛰✈]\s*/, "")}" (${c.range})`).join(" e ");
+  return `Você já tem ${lista} nesse mesmo horário. Quer salvar mesmo assim?`;
+}
+
+async function ensureDayForDate(date) {
+  let day = state.days.find((d) => d.data === date);
+  if (day) return day;
+  const payload = { data: date, numero_dia: state.days.length + 1 };
+  const { data, error } = await sb.from("itinerary_days").insert(payload).select().single();
+  if (error) { console.error(error); return null; }
+  state.days.push(data);
+  return data;
+}
+
+async function upsertMirroredItem({ day_id, horario, titulo, tipo, tour_id = null, flight_id = null }) {
+  const existing = state.items.find((i) => (flight_id && i.flight_id === flight_id) || (tour_id && i.tour_id === tour_id));
+  const payload = { day_id, horario, titulo, tipo, tour_id, flight_id };
+  if (existing) {
+    const { error } = await sb.from("itinerary_items").update(payload).eq("id", existing.id);
+    if (error) console.error(error);
+  } else {
+    const ordem = state.items.filter((i) => i.day_id === day_id).length;
+    const { error } = await sb.from("itinerary_items").insert({ ...payload, ordem });
+    if (error) console.error(error);
+  }
+}
+
+async function removeMirroredItem(flight_id, tour_id) {
+  const existing = state.items.find((i) => (flight_id && i.flight_id === flight_id) || (tour_id && i.tour_id === tour_id));
+  if (existing) await sb.from("itinerary_items").delete().eq("id", existing.id);
+}
+
+// Cria/atualiza automaticamente o item correspondente no roteiro sempre
+// que um passeio é salvo — criando o dia, se ainda não existir.
+async function syncItineraryForTour(tour) {
+  if (!tour.data) {
+    await removeMirroredItem(null, tour.id);
+  } else {
+    const day = await ensureDayForDate(tour.data);
+    if (day) {
+      const start = tour.horario ? hhmmToMinutes(tour.horario) : null;
+      const dur = Number(tour.duracao_horas) || null;
+      const horarioLabel = start != null ? (dur ? formatRange(start, start + dur * 60) : tour.horario) : (tour.horario || "");
+      await upsertMirroredItem({ day_id: day.id, horario: horarioLabel, titulo: `⛰ ${tour.nome}`, tipo: "passeio", tour_id: tour.id });
+    }
+  }
+  await loadDaysAndItems();
+  renderDays();
+  renderResumo();
+}
+
+// O mesmo, mas para voos — usa data/hora de partida e chegada.
+async function syncItineraryForFlight(flight) {
+  if (!flight.data_partida) {
+    await removeMirroredItem(flight.id, null);
+  } else {
+    const [date, time] = flight.data_partida.split("T");
+    const day = await ensureDayForDate(date);
+    if (day) {
+      const startTime = (time || "").slice(0, 5);
+      let horarioLabel = startTime;
+      if (flight.data_chegada) {
+        const [dateE, timeE] = flight.data_chegada.split("T");
+        if (dateE === date && timeE) horarioLabel = `${startTime}–${timeE.slice(0, 5)}`;
+      }
+      await upsertMirroredItem({ day_id: day.id, horario: horarioLabel, titulo: `✈ ${flight.origem} → ${flight.destino}`, tipo: "voo", flight_id: flight.id });
+    }
+  }
+  await loadDaysAndItems();
+  renderDays();
+  renderResumo();
 }
 
 document.addEventListener("DOMContentLoaded", initPinGate);
