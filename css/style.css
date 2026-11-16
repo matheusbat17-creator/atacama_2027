@@ -18,6 +18,7 @@
   --font-display: "Fraunces", Georgia, serif;
   --font-body: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
 }
 
 *{box-sizing:border-box;}
@@ -81,14 +82,14 @@ body{
 
 .topbar{
   position:relative; overflow:hidden;
-  height:168px;
+  height: calc(168px + var(--safe-top));
   color:#fff;
 }
 .hero-scene{ position:absolute; inset:0; width:100%; height:100%; display:block; }
 .topbar-overlay{
   position:relative; z-index:1; height:100%;
   display:flex; flex-direction:column; justify-content:space-between;
-  padding: 18px 20px 14px;
+  padding: calc(18px + var(--safe-top)) 20px 14px;
 }
 .topbar-title h1{
   margin:0; font-size:22px; font-weight:600; font-family: var(--font-display);
