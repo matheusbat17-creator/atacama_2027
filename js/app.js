@@ -157,6 +157,7 @@ async function refreshAll() {
   renderBudget();
   renderPacking();
   renderPriceWatch();
+  renderFlightSearchLinks();
   ensureExchangeRates(); // não bloqueia o resto do app enquanto busca a cotação
 }
 
@@ -266,6 +267,11 @@ function setupNav() {
 
   document.getElementById("btn-edit-trip").addEventListener("click", openTripInfoModal);
 
+  document.getElementById("btn-refresh-flightprices").addEventListener("click", () => {
+    const url = renderFlightSearchLinks();
+    window.open(url, "_blank", "noopener");
+  });
+
   document.getElementById("btn-save-watch").addEventListener("click", async () => {
     const preco_alvo = numOrNull("watch-alvo");
     if (!state.priceWatch) return toast("Monitor de preço não encontrado");
@@ -362,7 +368,7 @@ function openTripInfoModal() {
     };
     const { error } = await sb.from("trip_info").upsert(payload);
     if (error) return toast("Erro ao salvar");
-    closeModal(); toast("Viagem atualizada"); await loadTripInfo(); renderResumo(); renderBudget();
+    closeModal(); toast("Viagem atualizada"); await loadTripInfo(); renderResumo(); renderBudget(); renderFlightSearchLinks();
   });
 }
 
@@ -1173,6 +1179,48 @@ function openPackingModal(i = {}) {
     closeModal(); toast("Item salvo"); await loadPackingItems(); renderPacking();
   });
   if (i.id) document.getElementById("p-del").addEventListener("click", () => confirmDelete("packing_items", i.id, loadPackingItems, renderPacking, true));
+}
+
+// ================= BUSCA DE PREÇO DE VOO AO VIVO (links para buscadores reais) =================
+// Não existe API pública/gratuita confiável para preço de voo direto do navegador, então em vez de
+// simular um número, geramos links já preenchidos com a rota e as datas da viagem para os buscadores
+// reais — o preço que aparece lá é o preço de verdade, atualizado na hora.
+function ddmmyyyyToSkyscanner(dateStr) {
+  // "2027-09-24" -> "270924" (formato yymmdd usado pelo Skyscanner)
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  return `${y.slice(2)}${m}${d}`;
+}
+
+function renderFlightSearchLinks() {
+  const t = state.tripInfo || {};
+  const pessoas = numPessoas();
+  const ida = t.data_ida || "";
+  const volta = t.data_volta || "";
+
+  const googleFlightsQ = ida && volta
+    ? `Voos de São José do Rio Preto (SJP) para Calama (CJC) ida em ${DATE_BR(ida)} volta em ${DATE_BR(volta)} para ${pessoas} pessoas`
+    : `Voos de São José do Rio Preto (SJP) para Calama (CJC) ida e volta para ${pessoas} pessoas`;
+  const googleFlightsUrl = `https://www.google.com/travel/flights?q=${encodeURIComponent(googleFlightsQ)}`;
+
+  const skyIda = ddmmyyyyToSkyscanner(ida);
+  const skyVolta = ddmmyyyyToSkyscanner(volta);
+  const skyscannerUrl = skyIda && skyVolta
+    ? `https://www.skyscanner.com.br/transporte/passagens-aereas/sjp/cjc/${skyIda}/${skyVolta}/?adultos=${pessoas}&cabinclass=economy&rtn=1`
+    : `https://www.skyscanner.com.br/transporte/passagens-aereas/sjp/cjc/`;
+
+  const buscaGeralQ = ida && volta
+    ? `passagem aérea ida e volta São José do Rio Preto Calama ${DATE_BR(ida)} a ${DATE_BR(volta)}`
+    : `passagem aérea ida e volta São José do Rio Preto Calama`;
+  const buscaGeralUrl = `https://www.google.com/search?q=${encodeURIComponent(buscaGeralQ)}`;
+
+  const gfEl = document.getElementById("link-google-flights");
+  const skyEl = document.getElementById("link-skyscanner");
+  const bgEl = document.getElementById("link-busca-geral");
+  if (gfEl) gfEl.href = googleFlightsUrl;
+  if (skyEl) skyEl.href = skyscannerUrl;
+  if (bgEl) bgEl.href = buscaGeralUrl;
+  return googleFlightsUrl;
 }
 
 // ================= MONITOR DE PREÇO DE VOO (SJP → Calama) =================
