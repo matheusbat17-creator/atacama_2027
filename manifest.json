@@ -1,0 +1,15 @@
+{
+  "name": "Atacama 2027",
+  "short_name": "Atacama 2027",
+  "description": "Planejamento da viagem ao deserto do Atacama — voos, hospedagem, passeios, roteiro e orçamento.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B1021",
+  "theme_color": "#0B1021",
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
