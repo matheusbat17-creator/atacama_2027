@@ -24,6 +24,48 @@ const MONEY = (v, moeda = "BRL") => {
   }
 };
 
+// Rótulo "em Nx de R$ Y" exibido junto ao preço quando o item está parcelado.
+function installmentLabel(total, parcelado, parcelas, moeda) {
+  if (!parcelado || !parcelas || parcelas < 2 || !total) return "";
+  return `💳 em ${parcelas}x de ${MONEY(Number(total) / parcelas, moeda)}`;
+}
+
+// Soma o valor da parcela mensal de todos os itens parcelados de uma lista —
+// usado no orçamento para mostrar o compromisso financeiro mensal da viagem.
+function sumInstallments(arr, field) {
+  return arr.reduce((acc, x) => acc + (x.parcelado && x.parcelas >= 2 ? (Number(x[field]) || 0) / x.parcelas : 0), 0);
+}
+
+// Insere o bloco "Parcelado? / Em quantas parcelas" em um formulário, e liga o
+// comportamento de mostrar o campo de parcelas só quando "Sim" é selecionado.
+function parcelamentoFieldsHTML(p, item) {
+  const parcelado = !!item.parcelado;
+  return `
+    <div class="form-grid-2">
+      <div class="form-row"><label>Parcelado?</label>
+        <select id="${p}-parcelado">
+          <option value="false" ${!parcelado ? "selected" : ""}>Não</option>
+          <option value="true" ${parcelado ? "selected" : ""}>Sim</option>
+        </select>
+      </div>
+      <div class="form-row" id="${p}-parcelas-row" style="${parcelado ? "" : "display:none"}">
+        <label>Em quantas parcelas</label>
+        <input type="number" min="2" step="1" id="${p}-parcelas" value="${item.parcelas ?? ""}"/>
+      </div>
+    </div>`;
+}
+function wireParcelamento(p) {
+  const sel = document.getElementById(`${p}-parcelado`);
+  const row = document.getElementById(`${p}-parcelas-row`);
+  const sync = () => { row.style.display = sel.value === "true" ? "" : "none"; };
+  sel.addEventListener("change", sync);
+  sync();
+}
+function parcelamentoPayload(p) {
+  const parcelado = val(`${p}-parcelado`) === "true";
+  return { parcelado, parcelas: parcelado ? numOrNull(`${p}-parcelas`) : null };
+}
+
 const DATE_BR = (d) => {
   if (!d) return "—";
   const dt = new Date(d + (String(d).length === 10 ? "T00:00:00" : ""));
@@ -320,6 +362,7 @@ function renderFlights() {
         </div>
         <span class="item-price">${f.preco != null ? MONEY(f.preco, f.moeda) : ""}</span>
       </div>
+      ${installmentLabel(f.preco, f.parcelado, f.parcelas, f.moeda) ? `<p class="item-sub">${installmentLabel(f.preco, f.parcelado, f.parcelas, f.moeda)}</p>` : ""}
       <span class="badge ${badgeClass(f.status)}">${f.status}</span>
       <div class="item-actions">
         <button data-edit="${f.id}">Editar</button>
@@ -366,12 +409,14 @@ function openFlightModal(f = {}) {
       <div class="form-row"><label>Chegada</label><input type="datetime-local" id="f-chegada" value="${toLocalInput(f.data_chegada)}"/></div>
     </div>
     <div class="form-row"><label>Código da reserva</label><input id="f-cod" value="${f.codigo_reserva || ""}"/></div>
+    ${parcelamentoFieldsHTML("f", f)}
     <div class="form-row"><label>Notas</label><textarea id="f-notas">${f.notas || ""}</textarea></div>
     <div class="modal-footer">
       <button class="btn-save" id="f-save">Salvar</button>
       ${f.id ? `<button class="btn-delete" id="f-del">Excluir</button>` : ""}
     </div>
   `);
+  wireParcelamento("f");
 
   document.getElementById("f-save").addEventListener("click", async () => {
     const payload = {
@@ -379,6 +424,7 @@ function openFlightModal(f = {}) {
       companhia: val("f-cia"), numero_voo: val("f-num"), preco: numOrNull("f-preco"),
       data_partida: val("f-partida") || null, data_chegada: val("f-chegada") || null,
       codigo_reserva: val("f-cod"), notas: val("f-notas"), updated_at: new Date().toISOString(),
+      ...parcelamentoPayload("f"),
     };
     if (!payload.origem || !payload.destino) return toast("Informe origem e destino");
 
@@ -438,6 +484,7 @@ function renderAccommodations() {
         </div>
         <span class="item-price">${a.preco_total != null ? MONEY(a.preco_total, a.moeda) : ""}</span>
       </div>
+      ${installmentLabel(a.preco_total, a.parcelado, a.parcelas, a.moeda) ? `<p class="item-sub">${installmentLabel(a.preco_total, a.parcelado, a.parcelas, a.moeda)}</p>` : ""}
       <span class="badge ${badgeClass(a.status)}">${a.status}</span>
       <div class="item-actions">
         <button data-edit="${a.id}">Editar</button>
@@ -465,18 +512,21 @@ function openAccommodationModal(a = {}) {
     <div class="form-row"><label>Preço total (R$)</label><input type="number" step="0.01" id="a-preco" value="${a.preco_total ?? ""}"/></div>
     <div class="form-row"><label>Código da reserva</label><input id="a-cod" value="${a.codigo_reserva || ""}"/></div>
     <div class="form-row"><label>Endereço</label><input id="a-endereco" value="${a.endereco || ""}"/></div>
+    ${parcelamentoFieldsHTML("a", a)}
     <div class="form-row"><label>Notas</label><textarea id="a-notas">${a.notas || ""}</textarea></div>
     <div class="modal-footer">
       <button class="btn-save" id="a-save">Salvar</button>
       ${a.id ? `<button class="btn-delete" id="a-del">Excluir</button>` : ""}
     </div>
   `);
+  wireParcelamento("a");
   document.getElementById("a-save").addEventListener("click", async () => {
     const payload = {
       nome: val("a-nome"), cidade: val("a-cidade"), status: val("a-status"),
       checkin: val("a-checkin") || null, checkout: val("a-checkout") || null,
       preco_total: numOrNull("a-preco"), codigo_reserva: val("a-cod"),
       endereco: val("a-endereco"), notas: val("a-notas"), updated_at: new Date().toISOString(),
+      ...parcelamentoPayload("a"),
     };
     if (!payload.nome) return toast("Informe o nome da hospedagem");
     let error;
@@ -508,6 +558,7 @@ function renderTours() {
         </div>
         <span class="item-price">${t.preco != null ? MONEY(t.preco, t.moeda) : ""}</span>
       </div>
+      ${installmentLabel(t.preco, t.parcelado, t.parcelas, t.moeda) ? `<p class="item-sub">${installmentLabel(t.preco, t.parcelado, t.parcelas, t.moeda)}</p>` : ""}
       <span class="badge ${badgeClass(t.status)}">${t.status}</span>
       <div class="item-actions">
         <button data-edit="${t.id}">Editar</button>
@@ -541,18 +592,21 @@ function openTourModal(t = {}) {
       <div class="form-row"><label>Dificuldade</label><input id="t-dificuldade" value="${t.nivel_dificuldade || ""}"/></div>
     </div>
     <div class="form-row"><label>Agência</label><input id="t-agencia" value="${t.agencia || ""}"/></div>
+    ${parcelamentoFieldsHTML("t", t)}
     <div class="form-row"><label>Notas</label><textarea id="t-notas">${t.notas || ""}</textarea></div>
     <div class="modal-footer">
       <button class="btn-save" id="t-save">Salvar</button>
       ${t.id ? `<button class="btn-delete" id="t-del">Excluir</button>` : ""}
     </div>
   `);
+  wireParcelamento("t");
   document.getElementById("t-save").addEventListener("click", async () => {
     const payload = {
       nome: val("t-nome"), categoria: val("t-categoria"), status: val("t-status"),
       data: val("t-data") || null, horario: val("t-horario"), duracao_horas: numOrNull("t-duracao"),
       preco: numOrNull("t-preco"), altitude_m: numOrNull("t-altitude"), nivel_dificuldade: val("t-dificuldade"),
       agencia: val("t-agencia"), notas: val("t-notas"), updated_at: new Date().toISOString(),
+      ...parcelamentoPayload("t"),
     };
     if (!payload.nome) return toast("Informe o nome do passeio");
 
@@ -722,10 +776,14 @@ function renderBudget() {
     ? `${MONEY(total)} de ${MONEY(budget)} (${pct}%)`
     : `${MONEY(total)} gastos até agora — defina um orçamento total em "Resumo"`;
 
+  const mensalParcelas = sumInstallments(state.flights, "preco") + sumInstallments(state.accommodations, "preco_total")
+    + sumInstallments(state.tours, "preco") + sumInstallments(state.expenses, "valor");
+
   const breakdown = document.getElementById("budget-breakdown");
   breakdown.innerHTML = [
     ["Voos", totalFlights], ["Hospedagem", totalHotels], ["Passeios", totalTours], ["Outras despesas", totalExpenses], ["Total", total],
-  ].map(([label, v]) => `<div class="breakdown-row"><span>${label}</span><span>${MONEY(v)}</span></div>`).join("");
+  ].map(([label, v]) => `<div class="breakdown-row"><span>${label}</span><span>${MONEY(v)}</span></div>`).join("")
+    + (mensalParcelas > 0 ? `<div class="breakdown-row breakdown-highlight"><span>💳 Compromisso mensal (parcelas em aberto)</span><span>${MONEY(mensalParcelas)}/mês</span></div>` : "");
 
   renderExpenses();
 }
@@ -744,6 +802,7 @@ function renderExpenses() {
         </div>
         <span class="item-price">${MONEY(e.valor, e.moeda)}</span>
       </div>
+      ${installmentLabel(e.valor, e.parcelado, e.parcelas, e.moeda) ? `<p class="item-sub">${installmentLabel(e.valor, e.parcelado, e.parcelas, e.moeda)}</p>` : ""}
       <span class="badge ${e.pago ? "ok" : ""}">${e.pago ? "pago" : "pendente"}</span>
       <div class="item-actions">
         <button data-edit="${e.id}">Editar</button>
@@ -768,16 +827,19 @@ function openExpenseModal(e = {}) {
         <select id="e-pago"><option value="false" ${!e.pago ? "selected" : ""}>Pendente</option><option value="true" ${e.pago ? "selected" : ""}>Pago</option></select>
       </div>
     </div>
+    ${parcelamentoFieldsHTML("e", e)}
     <div class="form-row"><label>Notas</label><textarea id="e-notas">${e.notas || ""}</textarea></div>
     <div class="modal-footer">
       <button class="btn-save" id="e-save">Salvar</button>
       ${e.id ? `<button class="btn-delete" id="e-del">Excluir</button>` : ""}
     </div>
   `);
+  wireParcelamento("e");
   document.getElementById("e-save").addEventListener("click", async () => {
     const payload = {
       descricao: val("e-desc"), categoria: val("e-cat") || "Outros", valor: Number(val("e-valor") || 0),
       data: val("e-data") || null, pago: val("e-pago") === "true", notas: val("e-notas"),
+      ...parcelamentoPayload("e"),
     };
     if (!payload.descricao) return toast("Informe a descrição");
     let error;

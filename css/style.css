@@ -246,6 +246,9 @@ body{
 .breakdown-row{ display:flex; justify-content:space-between; align-items:center; font-size:13.5px; }
 .breakdown-row span:first-child{ color: var(--muted); font-weight:600; }
 .breakdown-row span:last-child{ font-weight:700; color: var(--night-2); }
+.breakdown-row.breakdown-highlight{ margin-top:4px; padding-top:10px; border-top:1px dashed var(--sand-3); }
+.breakdown-row.breakdown-highlight span:first-child{ color: var(--terracotta-2); }
+.breakdown-row.breakdown-highlight span:last-child{ color: var(--terracotta-2); }
 
 /* ---------- BOTTOM NAV ---------- */
 .bottom-nav{
