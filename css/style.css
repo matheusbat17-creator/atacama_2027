@@ -384,3 +384,6 @@ body{
   text-decoration:none; cursor:pointer;
 }
 .pricewatch-best .btn-link-oferta{ display:inline-flex; margin-top:10px; flex:none; padding:8px 14px; }
+
+.budget-text-pp{ margin:4px 0 0; font-size:12.5px; color: var(--muted); font-weight:600; }
+.field-hint{ font-size:11.5px; color: var(--muted); margin:-8px 0 14px; line-height:1.4; }

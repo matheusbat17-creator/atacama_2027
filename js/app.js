@@ -35,9 +35,12 @@ function installmentLabel(total, parcelado, parcelas, moeda) {
 
 // Soma o valor da parcela mensal de todos os itens parcelados de uma lista —
 // usado no orçamento para mostrar o compromisso financeiro mensal da viagem.
-function sumInstallments(arr, field) {
-  return arr.reduce((acc, x) => acc + (x.parcelado && x.parcelas >= 2 ? (Number(x[field]) || 0) / x.parcelas : 0), 0);
+function sumInstallments(arr, field, multiplier = 1) {
+  return arr.reduce((acc, x) => acc + (x.parcelado && x.parcelas >= 2 ? (Number(x[field]) || 0) * multiplier / x.parcelas : 0), 0);
 }
+
+// Nº de pessoas na viagem (usado para converter valores por pessoa de passeios/hospedagens em total)
+function numPessoas() { return Number(state.tripInfo?.pessoas || 2); }
 
 // Insere o bloco "Parcelado? / Em quantas parcelas" em um formulário, e liga o
 // comportamento de mostrar o campo de parcelas só quando "Sim" é selecionado.
@@ -341,7 +344,11 @@ function openTripInfoModal() {
       <div class="form-row"><label>Data volta</label><input type="date" id="f-volta" value="${t.data_volta || ""}"/></div>
     </div>
     <div class="form-row"><label>Cidade base</label><input id="f-base" value="${t.cidade_base || "San Pedro de Atacama"}"/></div>
-    <div class="form-row"><label>Orçamento total (R$)</label><input type="number" step="0.01" id="f-orcamento" value="${t.orcamento_total || ""}"/></div>
+    <div class="form-grid-2">
+      <div class="form-row"><label>Nº de pessoas na viagem</label><input type="number" min="1" step="1" id="f-pessoas" value="${t.pessoas ?? 2}"/></div>
+      <div class="form-row"><label>Orçamento total (R$)</label><input type="number" step="0.01" id="f-orcamento" value="${t.orcamento_total || ""}"/></div>
+    </div>
+    <p class="field-hint">O preço de passeios e hospedagens é lançado por pessoa — o total é calculado automaticamente multiplicando pelo nº de pessoas acima.</p>
     <div class="form-row"><label>Notas</label><textarea id="f-notas">${t.notas || ""}</textarea></div>
     <div class="modal-footer"><button class="btn-save" id="f-save">Salvar</button></div>
   `);
@@ -350,6 +357,7 @@ function openTripInfoModal() {
       id: 1,
       nome: val("f-nome"), data_ida: val("f-ida") || null, data_volta: val("f-volta") || null,
       cidade_base: val("f-base"), orcamento_total: numOrNull("f-orcamento"), notas: val("f-notas"),
+      pessoas: Number(val("f-pessoas") || 2),
       updated_at: new Date().toISOString(),
     };
     const { error } = await sb.from("trip_info").upsert(payload);
@@ -493,7 +501,10 @@ async function loadAccommodations() {
 function renderAccommodations() {
   const el = document.getElementById("list-accommodations");
   if (!state.accommodations.length) { el.innerHTML = emptyState("Nenhuma hospedagem cadastrada ainda."); return; }
-  el.innerHTML = state.accommodations.map(a => `
+  const pessoas = numPessoas();
+  el.innerHTML = state.accommodations.map(a => {
+    const totalA = a.preco_total != null ? Number(a.preco_total) * pessoas : null;
+    return `
     <div class="item-card status-${a.status}">
       <div class="item-top">
         <div>
@@ -501,16 +512,18 @@ function renderAccommodations() {
           <p class="item-sub">${a.cidade || ""}</p>
           <p class="item-sub">${DATE_BR(a.checkin)} → ${DATE_BR(a.checkout)}</p>
         </div>
-        <span class="item-price">${a.preco_total != null ? MONEY(a.preco_total, a.moeda) : ""}</span>
+        <span class="item-price">${totalA != null ? MONEY(totalA, a.moeda) : ""}</span>
       </div>
-      ${installmentLabel(a.preco_total, a.parcelado, a.parcelas, a.moeda) ? `<p class="item-sub">${installmentLabel(a.preco_total, a.parcelado, a.parcelas, a.moeda)}</p>` : ""}
+      ${a.preco_total != null ? `<p class="item-sub">👥 ${MONEY(a.preco_total, a.moeda)} por pessoa × ${pessoas}</p>` : ""}
+      ${installmentLabel(totalA, a.parcelado, a.parcelas, a.moeda) ? `<p class="item-sub">${installmentLabel(totalA, a.parcelado, a.parcelas, a.moeda)}</p>` : ""}
       <span class="badge ${badgeClass(a.status)}">${a.status}</span>
       <div class="item-actions">
         <button data-edit="${a.id}">Editar</button>
         <button class="danger" data-del="${a.id}">Excluir</button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
   el.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => openAccommodationModal(state.accommodations.find(x => x.id === b.dataset.edit))));
   el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => confirmDelete("accommodations", b.dataset.del, loadAccommodations, () => { renderAccommodations(); renderResumo(); renderBudget(); })));
 }
@@ -528,7 +541,7 @@ function openAccommodationModal(a = {}) {
       <div class="form-row"><label>Check-in</label><input type="date" id="a-checkin" value="${a.checkin || ""}"/></div>
       <div class="form-row"><label>Check-out</label><input type="date" id="a-checkout" value="${a.checkout || ""}"/></div>
     </div>
-    <div class="form-row"><label>Preço total (R$)</label><input type="number" step="0.01" id="a-preco" value="${a.preco_total ?? ""}"/></div>
+    <div class="form-row"><label>Preço por pessoa (R$)</label><input type="number" step="0.01" id="a-preco" value="${a.preco_total ?? ""}"/></div>
     <div class="form-row"><label>Código da reserva</label><input id="a-cod" value="${a.codigo_reserva || ""}"/></div>
     <div class="form-row"><label>Endereço</label><input id="a-endereco" value="${a.endereco || ""}"/></div>
     ${parcelamentoFieldsHTML("a", a)}
@@ -567,7 +580,10 @@ async function loadTours() {
 function renderTours() {
   const el = document.getElementById("list-tours");
   if (!state.tours.length) { el.innerHTML = emptyState("Nenhum passeio cadastrado ainda."); return; }
-  el.innerHTML = state.tours.map(t => `
+  const pessoas = numPessoas();
+  el.innerHTML = state.tours.map(t => {
+    const totalT = t.preco != null ? Number(t.preco) * pessoas : null;
+    return `
     <div class="item-card status-${t.status}">
       <div class="item-top">
         <div>
@@ -575,16 +591,18 @@ function renderTours() {
           <p class="item-sub">${t.categoria || ""}</p>
           <p class="item-sub">${DATE_BR(t.data)} ${t.horario ? "· " + t.horario : ""}</p>
         </div>
-        <span class="item-price">${t.preco != null ? MONEY(t.preco, t.moeda) : ""}</span>
+        <span class="item-price">${totalT != null ? MONEY(totalT, t.moeda) : ""}</span>
       </div>
-      ${installmentLabel(t.preco, t.parcelado, t.parcelas, t.moeda) ? `<p class="item-sub">${installmentLabel(t.preco, t.parcelado, t.parcelas, t.moeda)}</p>` : ""}
+      ${t.preco != null ? `<p class="item-sub">👥 ${MONEY(t.preco, t.moeda)} por pessoa × ${pessoas}</p>` : ""}
+      ${installmentLabel(totalT, t.parcelado, t.parcelas, t.moeda) ? `<p class="item-sub">${installmentLabel(totalT, t.parcelado, t.parcelas, t.moeda)}</p>` : ""}
       <span class="badge ${badgeClass(t.status)}">${t.status}</span>
       <div class="item-actions">
         <button data-edit="${t.id}">Editar</button>
         <button class="danger" data-del="${t.id}">Excluir</button>
       </div>
     </div>
-  `).join("");
+  `;
+  }).join("");
   el.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => openTourModal(state.tours.find(x => x.id === b.dataset.edit))));
   el.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => confirmDelete("tours", b.dataset.del, loadTours, () => { renderTours(); renderResumo(); renderBudget(); renderDays(); })));
 }
@@ -604,7 +622,7 @@ function openTourModal(t = {}) {
     </div>
     <div class="form-grid-2">
       <div class="form-row"><label>Duração (h)</label><input type="number" step="0.5" id="t-duracao" value="${t.duracao_horas ?? ""}"/></div>
-      <div class="form-row"><label>Preço (R$)</label><input type="number" step="0.01" id="t-preco" value="${t.preco ?? ""}"/></div>
+      <div class="form-row"><label>Preço por pessoa (R$)</label><input type="number" step="0.01" id="t-preco" value="${t.preco ?? ""}"/></div>
     </div>
     <div class="form-grid-2">
       <div class="form-row"><label>Altitude (m)</label><input type="number" id="t-altitude" value="${t.altitude_m ?? ""}"/></div>
@@ -782,11 +800,13 @@ async function loadExpenses() {
 }
 
 function renderBudget() {
+  const pessoas = numPessoas();
   const totalFlights = sum(state.flights, "preco");
-  const totalHotels = sum(state.accommodations, "preco_total");
-  const totalTours = sum(state.tours, "preco");
+  const totalHotels = sum(state.accommodations, "preco_total") * pessoas; // preço lançado por pessoa
+  const totalTours = sum(state.tours, "preco") * pessoas; // preço lançado por pessoa
   const totalExpenses = sum(state.expenses, "valor");
   const total = totalFlights + totalHotels + totalTours + totalExpenses;
+  const totalPorPessoa = total / pessoas;
   const budget = Number(state.tripInfo?.orcamento_total || 0);
 
   const pct = budget > 0 ? Math.min(100, Math.round((total / budget) * 100)) : 0;
@@ -794,14 +814,17 @@ function renderBudget() {
   document.getElementById("budget-text").textContent = budget > 0
     ? `${MONEY(total)} de ${MONEY(budget)} (${pct}%)`
     : `${MONEY(total)} gastos até agora — defina um orçamento total em "Resumo"`;
+  const ppEl = document.getElementById("budget-text-pp");
+  if (ppEl) ppEl.textContent = `👥 ${MONEY(totalPorPessoa)} por pessoa (${pessoas} pessoas)`;
 
-  const mensalParcelas = sumInstallments(state.flights, "preco") + sumInstallments(state.accommodations, "preco_total")
-    + sumInstallments(state.tours, "preco") + sumInstallments(state.expenses, "valor");
+  const mensalParcelas = sumInstallments(state.flights, "preco") + sumInstallments(state.accommodations, "preco_total", pessoas)
+    + sumInstallments(state.tours, "preco", pessoas) + sumInstallments(state.expenses, "valor");
 
   const breakdown = document.getElementById("budget-breakdown");
   breakdown.innerHTML = [
     ["Voos", totalFlights], ["Hospedagem", totalHotels], ["Passeios", totalTours], ["Outras despesas", totalExpenses], ["Total", total],
   ].map(([label, v]) => `<div class="breakdown-row"><span>${label}</span><span>${MONEY(v)}</span></div>`).join("")
+    + `<div class="breakdown-row"><span>👥 Valor por pessoa (${pessoas} pessoas)</span><span>${MONEY(totalPorPessoa)}</span></div>`
     + (mensalParcelas > 0 ? `<div class="breakdown-row breakdown-highlight"><span>💳 Compromisso mensal (parcelas em aberto)</span><span>${MONEY(mensalParcelas)}/mês</span></div>` : "");
 
   renderExpenses();
