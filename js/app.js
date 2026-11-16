@@ -149,6 +149,11 @@ async function refreshAll() {
     loadPackingItems(),
     loadPriceWatch(),
   ]);
+  // Garante que passeios cadastrados antes da lógica de duplicação (ou editados
+  // fora do app) fiquem sempre com seus espelhos no roteiro corretos, sem precisar
+  // reabrir e salvar cada passeio manualmente.
+  await resyncAllTourMirrors();
+  await loadDaysAndItems();
   renderResumo();
   renderFlights();
   renderAccommodations();
@@ -1107,6 +1112,29 @@ function tourDayOccurrences(tour) {
     ocorrencias.push({ date: addDaysStr(tour.data, k), horario });
   }
   return ocorrencias;
+}
+
+// Roda a mesma lógica de sincronização para TODOS os passeios já cadastrados,
+// não só o que acabou de ser salvo. Sem isso, um passeio criado antes desta
+// lógica existir (ou alterado fora do app) ficaria com o espelho antigo/errado
+// no roteiro até alguém reabrir e salvar aquele passeio manualmente.
+async function resyncAllTourMirrors() {
+  for (const tour of state.tours) {
+    const ocorrencias = tourDayOccurrences(tour);
+    if (!ocorrencias.length) {
+      await removeMirroredItem(null, tour.id);
+      continue;
+    }
+    const keepDayIds = [];
+    for (const occ of ocorrencias) {
+      const day = await ensureDayForDate(occ.date);
+      if (day) {
+        keepDayIds.push(day.id);
+        await upsertMirroredItem({ day_id: day.id, horario: occ.horario, titulo: `⛰ ${tour.nome}`, tipo: "passeio", tour_id: tour.id });
+      }
+    }
+    await removeMirroredItemsExcept(tour.id, null, keepDayIds);
+  }
 }
 
 // Cria/atualiza automaticamente o(s) item(ns) correspondente(s) no roteiro sempre
