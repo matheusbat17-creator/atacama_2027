@@ -809,12 +809,17 @@ function askConflictWarning(message) { return askConfirmCustom(message, "Salvar 
 async function confirmDelete(table, id, reload, rerender, closeModalAfter = false) {
   const ok = await askConfirm("Tem certeza que deseja excluir este item?");
   if (!ok) return;
-  const { error } = await sb.from(table).delete().eq("id", id);
-  if (error) return toast("Erro ao excluir");
-  // Se o item excluído tinha um espelho no roteiro (voo ou passeio), remove de lá também.
+  // Se o item a excluir tinha um espelho no roteiro (voo ou passeio), remove o espelho
+  // ANTES de excluir o registro original: a FK em itinerary_items zera tour_id/flight_id
+  // no instante em que a linha original é apagada, então precisamos localizar o espelho
+  // enquanto a referência ainda é válida.
   if (table === "flights" || table === "tours") {
     const col = table === "flights" ? "flight_id" : "tour_id";
     await sb.from("itinerary_items").delete().eq(col, id);
+  }
+  const { error } = await sb.from(table).delete().eq("id", id);
+  if (error) return toast("Erro ao excluir");
+  if (table === "flights" || table === "tours") {
     await loadDaysAndItems();
     renderDays();
   }
