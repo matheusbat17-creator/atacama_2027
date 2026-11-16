@@ -305,6 +305,12 @@ body{
 .form-row textarea{ min-height:70px; resize:vertical; }
 /* min-width:0 evita que inputs nativos (data/hora/número) estourem a largura da coluna no Safari do iPhone,
    forçando o conteúdo inteiro a rolar para os lados. */
+/* O controle nativo de data/hora do iOS precisa de mais espaço do que meia coluna (~170px) para mostrar
+   o valor inteiro sem cortar — qualquer linha de formulário que tenha um campo desse tipo vira coluna
+   única (em vez de 2 lado a lado), garantindo a largura total do modal para esses campos. */
+.form-grid-2:has(input[type="date"], input[type="time"], input[type="datetime-local"]){
+  grid-template-columns: 1fr;
+}
 .form-grid-2{ display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:10px; }
 .form-grid-2 > .form-row{ min-width:0; overflow:hidden; }
 
