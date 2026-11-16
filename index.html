@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0D1526" />
+<title>Atacama 2027</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230D1526'/%3E%3Ccircle cx='50' cy='35' r='14' fill='%23F2C14E'/%3E%3Cpath d='M0 75 L30 55 L55 70 L75 50 L100 65 L100 100 L0 100 Z' fill='%23C4572B'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="pin-gate" class="pin-gate">
+  <div class="pin-card">
+    <div class="pin-stars">✦ ✧ ✦</div>
+    <h1>Atacama 2027</h1>
+    <p>Digite o código para acessar seu planejamento</p>
+    <input type="password" inputmode="numeric" id="pin-input" maxlength="6" placeholder="••••" autofocus />
+    <button id="pin-submit">Entrar</button>
+    <p id="pin-error" class="pin-error"></p>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+
+  <header class="topbar">
+    <div class="topbar-title">
+      <span class="topbar-star">✦</span>
+      <div>
+        <h1 id="trip-name">Deserto do Atacama</h1>
+        <p id="trip-countdown" class="countdown">calculando...</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- RESUMO -->
+    <section id="view-resumo" class="view">
+      <div class="cards-grid">
+        <div class="stat-card">
+          <span class="stat-label">Voos</span>
+          <span class="stat-value" id="stat-flights">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Hospedagens</span>
+          <span class="stat-value" id="stat-hotels">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Passeios</span>
+          <span class="stat-value" id="stat-tours">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Dias no roteiro</span>
+          <span class="stat-value" id="stat-days">0</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Orçamento geral</h2>
+          <button class="btn-ghost" id="btn-edit-trip">Editar</button>
+        </div>
+        <div class="budget-bar-wrap">
+          <div class="budget-bar"><div class="budget-bar-fill" id="budget-fill"></div></div>
+          <p id="budget-text">R$ 0 de R$ 0</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Informações da viagem</h2>
+        <dl class="info-list" id="trip-info-list">
+          <dt>Ida</dt><dd id="info-data-ida">—</dd>
+          <dt>Volta</dt><dd id="info-data-volta">—</dd>
+          <dt>Base</dt><dd id="info-cidade-base">—</dd>
+        </dl>
+        <p id="info-notas" class="info-notas"></p>
+      </div>
+    </section>
+
+    <!-- VOOS E HOSPEDAGEM -->
+    <section id="view-logistica" class="view hidden">
+      <div class="section-tabs">
+        <button class="section-tab active" data-sub="voos">Voos</button>
+        <button class="section-tab" data-sub="hospedagem">Hospedagem</button>
+      </div>
+
+      <div id="sub-voos" class="sub-view">
+        <button class="btn-primary btn-add" data-action="add-flight">+ Novo voo</button>
+        <div id="list-flights" class="list"></div>
+      </div>
+
+      <div id="sub-hospedagem" class="sub-view hidden">
+        <button class="btn-primary btn-add" data-action="add-accommodation">+ Nova hospedagem</button>
+        <div id="list-accommodations" class="list"></div>
+      </div>
+    </section>
+
+    <!-- PASSEIOS -->
+    <section id="view-passeios" class="view hidden">
+      <button class="btn-primary btn-add" data-action="add-tour">+ Novo passeio</button>
+      <div id="list-tours" class="list"></div>
+    </section>
+
+    <!-- ROTEIRO -->
+    <section id="view-roteiro" class="view hidden">
+      <button class="btn-primary btn-add" data-action="add-day">+ Novo dia</button>
+      <div id="list-days" class="list"></div>
+    </section>
+
+    <!-- ORÇAMENTO -->
+    <section id="view-orcamento" class="view hidden">
+      <div class="panel">
+        <h2>Resumo por categoria</h2>
+        <div id="budget-breakdown" class="breakdown-list"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h2>Outras despesas</h2>
+        </div>
+        <button class="btn-primary btn-add" data-action="add-expense">+ Nova despesa</button>
+        <div id="list-expenses" class="list"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-view="resumo">
+      <span class="nav-icon">✦</span><span>Resumo</span>
+    </button>
+    <button class="nav-item" data-view="logistica">
+      <span class="nav-icon">✈</span><span>Voos</span>
+    </button>
+    <button class="nav-item" data-view="passeios">
+      <span class="nav-icon">⛰</span><span>Passeios</span>
+    </button>
+    <button class="nav-item" data-view="roteiro">
+      <span class="nav-icon">🗺</span><span>Roteiro</span>
+    </button>
+    <button class="nav-item" data-view="orcamento">
+      <span class="nav-icon">$</span><span>Orçamento</span>
+    </button>
+  </nav>
+</div>
+
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Título</h3>
+      <button id="modal-close" class="modal-close">✕</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+<script src="js/config.js" defer></script>
+<script src="js/app.js" defer></script>
+</body>
+</html>
