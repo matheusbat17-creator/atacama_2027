@@ -376,3 +376,11 @@ body{
 .pricewatch-best-label{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.02em; color: var(--muted); margin:0 0 4px; }
 .pricewatch-best.pricewatch-hit .pricewatch-best-label{ color: var(--ok); }
 .pricewatch-best-value{ font-size:18px; font-weight:700; color: var(--night-2); margin:0; font-family: var(--font-display); }
+
+.btn-link-oferta{
+  display:inline-flex; align-items:center; justify-content:center; flex:1;
+  padding:9px; border-radius:10px; border:1px solid var(--terracotta);
+  background:#fff; font-size:12.5px; font-weight:700; color: var(--terracotta);
+  text-decoration:none; cursor:pointer;
+}
+.pricewatch-best .btn-link-oferta{ display:inline-flex; margin-top:10px; flex:none; padding:8px 14px; }

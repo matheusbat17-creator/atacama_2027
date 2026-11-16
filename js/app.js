@@ -1180,6 +1180,7 @@ function renderPriceWatch() {
       <p class="pricewatch-best-label">${dentroDoAlvo ? "🔥 Dentro do preço-alvo!" : "Menor preço registrado"}</p>
       <p class="pricewatch-best-value">${MONEY(best.preco, best.moeda)}${best.companhia ? " · " + best.companhia : ""}</p>
       <p class="item-sub">${DATE_BR(best.data_cotacao)}${best.fonte ? " · " + best.fonte : ""}</p>
+      ${best.link ? `<a class="btn-link-oferta" href="${best.link}" target="_blank" rel="noopener">Abrir oferta ↗</a>` : ""}
     `;
     bestEl.classList.toggle("pricewatch-hit", dentroDoAlvo);
   } else {
@@ -1206,6 +1207,7 @@ function renderQuotes() {
       </div>
       ${q.observacao ? `<p class="item-sub">${q.observacao}</p>` : ""}
       <div class="item-actions">
+        ${q.link ? `<a class="btn-link-oferta" href="${q.link}" target="_blank" rel="noopener">Abrir oferta ↗</a>` : ""}
         <button data-edit-quote="${q.id}">Editar</button>
         <button class="danger" data-del-quote="${q.id}">Excluir</button>
       </div>
@@ -1232,6 +1234,7 @@ function openQuoteModal(q = {}) {
         <option value="true" ${q.promocao ? "selected" : ""}>Sim</option>
       </select>
     </div>
+    <div class="form-row"><label>Link para acessar a oferta</label><input type="url" id="q-link" value="${q.link || ""}" placeholder="https://..."/></div>
     <div class="form-row"><label>Observação</label><textarea id="q-obs">${q.observacao || ""}</textarea></div>
     <div class="modal-footer">
       <button class="btn-save" id="q-save">Salvar</button>
@@ -1241,7 +1244,7 @@ function openQuoteModal(q = {}) {
   document.getElementById("q-save").addEventListener("click", async () => {
     const payload = {
       preco: Number(val("q-preco") || 0), data_cotacao: val("q-data") || null,
-      companhia: val("q-cia"), fonte: val("q-fonte"), observacao: val("q-obs"),
+      companhia: val("q-cia"), fonte: val("q-fonte"), observacao: val("q-obs"), link: val("q-link") || null,
       promocao: val("q-promocao") === "true", watch_id: state.priceWatch?.id || null,
     };
     if (!payload.preco) return toast("Informe o preço");
