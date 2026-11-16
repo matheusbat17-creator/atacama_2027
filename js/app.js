@@ -3,7 +3,7 @@
 // Mobile-first, conectado ao Supabase (projeto Atacama_2027)
 // ============================================================
 
-let supabase;
+let sb;
 let state = {
   tripInfo: null,
   flights: [],
@@ -82,7 +82,7 @@ function initPinGate() {
 
 // ---------------- BOOT ----------------
 async function boot() {
-  supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
   setupNav();
   setupModal();
   await refreshAll();
@@ -161,7 +161,7 @@ function closeModal() {
 
 // ================= TRIP INFO =================
 async function loadTripInfo() {
-  const { data, error } = await supabase.from("trip_info").select("*").eq("id", 1).maybeSingle();
+  const { data, error } = await sb.from("trip_info").select("*").eq("id", 1).maybeSingle();
   if (error) { console.error(error); return; }
   state.tripInfo = data;
 }
@@ -208,7 +208,7 @@ function openTripInfoModal() {
       cidade_base: val("f-base"), orcamento_total: numOrNull("f-orcamento"), notas: val("f-notas"),
       updated_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from("trip_info").upsert(payload);
+    const { error } = await sb.from("trip_info").upsert(payload);
     if (error) return toast("Erro ao salvar");
     closeModal(); toast("Viagem atualizada"); await loadTripInfo(); renderResumo(); renderBudget();
   });
@@ -219,7 +219,7 @@ function numOrNull(id) { const v = val(id); return v === "" ? null : Number(v); 
 
 // ================= FLIGHTS =================
 async function loadFlights() {
-  const { data, error } = await supabase.from("flights").select("*").order("data_partida", { ascending: true });
+  const { data, error } = await sb.from("flights").select("*").order("data_partida", { ascending: true });
   if (error) { console.error(error); return; }
   state.flights = data || [];
 }
@@ -299,8 +299,8 @@ function openFlightModal(f = {}) {
     };
     if (!payload.origem || !payload.destino) return toast("Informe origem e destino");
     let error;
-    if (f.id) ({ error } = await supabase.from("flights").update(payload).eq("id", f.id));
-    else ({ error } = await supabase.from("flights").insert(payload));
+    if (f.id) ({ error } = await sb.from("flights").update(payload).eq("id", f.id));
+    else ({ error } = await sb.from("flights").insert(payload));
     if (error) return toast("Erro ao salvar voo");
     closeModal(); toast("Voo salvo"); await loadFlights(); renderFlights(); renderResumo(); renderBudget();
   });
@@ -318,7 +318,7 @@ function toLocalInput(iso) {
 
 // ================= ACCOMMODATIONS =================
 async function loadAccommodations() {
-  const { data, error } = await supabase.from("accommodations").select("*").order("checkin", { ascending: true });
+  const { data, error } = await sb.from("accommodations").select("*").order("checkin", { ascending: true });
   if (error) { console.error(error); return; }
   state.accommodations = data || [];
 }
@@ -378,8 +378,8 @@ function openAccommodationModal(a = {}) {
     };
     if (!payload.nome) return toast("Informe o nome da hospedagem");
     let error;
-    if (a.id) ({ error } = await supabase.from("accommodations").update(payload).eq("id", a.id));
-    else ({ error } = await supabase.from("accommodations").insert(payload));
+    if (a.id) ({ error } = await sb.from("accommodations").update(payload).eq("id", a.id));
+    else ({ error } = await sb.from("accommodations").insert(payload));
     if (error) return toast("Erro ao salvar");
     closeModal(); toast("Hospedagem salva"); await loadAccommodations(); renderAccommodations(); renderResumo(); renderBudget();
   });
@@ -388,7 +388,7 @@ function openAccommodationModal(a = {}) {
 
 // ================= TOURS =================
 async function loadTours() {
-  const { data, error } = await supabase.from("tours").select("*").order("data", { ascending: true });
+  const { data, error } = await sb.from("tours").select("*").order("data", { ascending: true });
   if (error) { console.error(error); return; }
   state.tours = data || [];
 }
@@ -454,8 +454,8 @@ function openTourModal(t = {}) {
     };
     if (!payload.nome) return toast("Informe o nome do passeio");
     let error;
-    if (t.id) ({ error } = await supabase.from("tours").update(payload).eq("id", t.id));
-    else ({ error } = await supabase.from("tours").insert(payload));
+    if (t.id) ({ error } = await sb.from("tours").update(payload).eq("id", t.id));
+    else ({ error } = await sb.from("tours").insert(payload));
     if (error) return toast("Erro ao salvar passeio");
     closeModal(); toast("Passeio salvo"); await loadTours(); renderTours(); renderResumo(); renderBudget();
   });
@@ -464,8 +464,8 @@ function openTourModal(t = {}) {
 
 // ================= ITINERARY (DAYS + ITEMS) =================
 async function loadDaysAndItems() {
-  const { data: days, error: e1 } = await supabase.from("itinerary_days").select("*").order("data", { ascending: true });
-  const { data: items, error: e2 } = await supabase.from("itinerary_items").select("*").order("ordem", { ascending: true });
+  const { data: days, error: e1 } = await sb.from("itinerary_days").select("*").order("data", { ascending: true });
+  const { data: items, error: e2 } = await sb.from("itinerary_items").select("*").order("ordem", { ascending: true });
   if (e1 || e2) { console.error(e1, e2); return; }
   state.days = days || [];
   state.items = items || [];
@@ -532,8 +532,8 @@ function openDayModal(d = {}) {
     const payload = { data: val("d-data") || null, numero_dia: Number(val("d-num") || nextNum), titulo: val("d-titulo"), resumo: val("d-resumo") };
     if (!payload.data) return toast("Informe a data do dia");
     let error;
-    if (d.id) ({ error } = await supabase.from("itinerary_days").update(payload).eq("id", d.id));
-    else ({ error } = await supabase.from("itinerary_days").insert(payload));
+    if (d.id) ({ error } = await sb.from("itinerary_days").update(payload).eq("id", d.id));
+    else ({ error } = await sb.from("itinerary_days").insert(payload));
     if (error) return toast("Erro ao salvar dia (verifique se já existe um dia com essa data)");
     closeModal(); toast("Dia salvo"); await loadDaysAndItems(); renderDays(); renderResumo();
   });
@@ -570,8 +570,8 @@ function openItemModal(i = {}, dayId) {
     };
     if (!payload.titulo) return toast("Informe o título do item");
     let error;
-    if (i.id) ({ error } = await supabase.from("itinerary_items").update(payload).eq("id", i.id));
-    else ({ error } = await supabase.from("itinerary_items").insert(payload));
+    if (i.id) ({ error } = await sb.from("itinerary_items").update(payload).eq("id", i.id));
+    else ({ error } = await sb.from("itinerary_items").insert(payload));
     if (error) return toast("Erro ao salvar item");
     closeModal(); toast("Item salvo"); await loadDaysAndItems(); renderDays();
   });
@@ -580,7 +580,7 @@ function openItemModal(i = {}, dayId) {
 
 // ================= EXPENSES / BUDGET =================
 async function loadExpenses() {
-  const { data, error } = await supabase.from("expenses").select("*").order("data", { ascending: true });
+  const { data, error } = await sb.from("expenses").select("*").order("data", { ascending: true });
   if (error) { console.error(error); return; }
   state.expenses = data || [];
 }
@@ -658,8 +658,8 @@ function openExpenseModal(e = {}) {
     };
     if (!payload.descricao) return toast("Informe a descrição");
     let error;
-    if (e.id) ({ error } = await supabase.from("expenses").update(payload).eq("id", e.id));
-    else ({ error } = await supabase.from("expenses").insert(payload));
+    if (e.id) ({ error } = await sb.from("expenses").update(payload).eq("id", e.id));
+    else ({ error } = await sb.from("expenses").insert(payload));
     if (error) return toast("Erro ao salvar despesa");
     closeModal(); toast("Despesa salva"); await loadExpenses(); renderBudget();
   });
@@ -690,7 +690,7 @@ function askConfirm(message) {
 async function confirmDelete(table, id, reload, rerender, closeModalAfter = false) {
   const ok = await askConfirm("Tem certeza que deseja excluir este item?");
   if (!ok) return;
-  const { error } = await supabase.from(table).delete().eq("id", id);
+  const { error } = await sb.from(table).delete().eq("id", id);
   if (error) return toast("Erro ao excluir");
   if (closeModalAfter) closeModal();
   toast("Excluído");
