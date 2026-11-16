@@ -12,6 +12,7 @@ let state = {
   days: [],
   items: [],
   expenses: [],
+  rates: null, // { usd_brl, clp_brl, data_cotacao }
 };
 
 const MONEY = (v, moeda = "BRL") => {
@@ -85,6 +86,7 @@ async function boot() {
   sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
   setupNav();
   setupModal();
+  setupExchangeUI();
   await refreshAll();
 }
 
@@ -103,6 +105,87 @@ async function refreshAll() {
   renderTours();
   renderDays();
   renderBudget();
+  ensureExchangeRates(); // não bloqueia o resto do app enquanto busca a cotação
+}
+
+// ================= EXCHANGE RATES (USD/CLP -> BRL) =================
+// Cacheado no Supabase: busca na API só uma vez por dia (o primeiro
+// acesso do dia atualiza para todo mundo que usa o app).
+async function ensureExchangeRates(force = false) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const updatedEl = document.getElementById("exchange-updated");
+  try {
+    if (!force) {
+      const { data, error } = await sb.from("exchange_rates").select("*").eq("id", 1).maybeSingle();
+      if (!error && data && data.data_cotacao === todayStr) {
+        state.rates = data;
+        renderRates();
+        return;
+      }
+      if (!error && data) state.rates = data; // usa como fallback enquanto busca atualização
+    }
+    if (updatedEl) updatedEl.textContent = "Atualizando cotação...";
+    const resp = await fetch("https://open.er-api.com/v6/latest/USD");
+    const json = await resp.json();
+    if (json.result !== "success" || !json.rates?.BRL || !json.rates?.CLP) throw new Error("resposta inválida");
+    const usd_brl = json.rates.BRL;
+    const clp_brl = json.rates.BRL / json.rates.CLP;
+    const payload = { id: 1, data_cotacao: todayStr, usd_brl, clp_brl, fonte: "open.er-api.com", updated_at: new Date().toISOString() };
+    await sb.from("exchange_rates").upsert(payload);
+    state.rates = payload;
+    renderRates();
+  } catch (e) {
+    console.error("Falha ao buscar cotação:", e);
+    if (state.rates) {
+      renderRates(true);
+    } else if (updatedEl) {
+      updatedEl.textContent = "Não foi possível obter a cotação agora.";
+    }
+  }
+}
+
+function renderRates(stale = false) {
+  const r = state.rates;
+  if (!r) return;
+  const usdChip = document.getElementById("rate-usd");
+  const clpChip = document.getElementById("rate-clp");
+  if (usdChip) usdChip.textContent = `USD R$ ${Number(r.usd_brl).toFixed(2)}`;
+  if (clpChip) clpChip.textContent = `CLP R$ ${(Number(r.clp_brl) * 1000).toFixed(2)}/mil`;
+
+  const updatedEl = document.getElementById("exchange-updated");
+  if (updatedEl) {
+    const dt = r.data_cotacao ? DATE_BR(r.data_cotacao) : "—";
+    updatedEl.textContent = stale
+      ? `Não foi possível atualizar agora — mostrando a última cotação (${dt}).`
+      : `Cotação de ${dt} · 1 USD = R$ ${Number(r.usd_brl).toFixed(4)} · 1.000 CLP = R$ ${(Number(r.clp_brl) * 1000).toFixed(4)}`;
+  }
+  recalcConverters();
+}
+
+function recalcConverters() {
+  const r = state.rates;
+  if (!r) return;
+  const usdInput = document.getElementById("conv-usd");
+  const clpInput = document.getElementById("conv-clp");
+  const usdResult = document.getElementById("conv-usd-result");
+  const clpResult = document.getElementById("conv-clp-result");
+  if (usdInput && usdResult) {
+    const v = Number(usdInput.value || 0);
+    usdResult.textContent = MONEY(v * Number(r.usd_brl));
+  }
+  if (clpInput && clpResult) {
+    const v = Number(clpInput.value || 0);
+    clpResult.textContent = MONEY(v * Number(r.clp_brl));
+  }
+}
+
+function setupExchangeUI() {
+  document.getElementById("conv-usd")?.addEventListener("input", recalcConverters);
+  document.getElementById("conv-clp")?.addEventListener("input", recalcConverters);
+  document.getElementById("btn-refresh-rates")?.addEventListener("click", () => {
+    toast("Atualizando cotação...");
+    ensureExchangeRates(true);
+  });
 }
 
 // ---------------- NAVIGATION ----------------
