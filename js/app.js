@@ -13,6 +13,9 @@ let state = {
   items: [],
   expenses: [],
   rates: null, // { usd_brl, clp_brl, data_cotacao }
+  packingItems: [],
+  priceWatch: null,
+  priceQuotes: [],
 };
 
 const MONEY = (v, moeda = "BRL") => {
@@ -140,6 +143,8 @@ async function refreshAll() {
     loadTours(),
     loadDaysAndItems(),
     loadExpenses(),
+    loadPackingItems(),
+    loadPriceWatch(),
   ]);
   renderResumo();
   renderFlights();
@@ -147,6 +152,8 @@ async function refreshAll() {
   renderTours();
   renderDays();
   renderBudget();
+  renderPacking();
+  renderPriceWatch();
   ensureExchangeRates(); // não bloqueia o resto do app enquanto busca a cotação
 }
 
@@ -255,6 +262,16 @@ function setupNav() {
   });
 
   document.getElementById("btn-edit-trip").addEventListener("click", openTripInfoModal);
+
+  document.getElementById("btn-save-watch").addEventListener("click", async () => {
+    const preco_alvo = numOrNull("watch-alvo");
+    if (!state.priceWatch) return toast("Monitor de preço não encontrado");
+    const { error } = await sb.from("price_watches").update({ preco_alvo }).eq("id", state.priceWatch.id);
+    if (error) return toast("Erro ao salvar preço-alvo");
+    toast("Preço-alvo salvo");
+    await loadPriceWatch();
+    renderPriceWatch();
+  });
 }
 
 function handleAddAction(action) {
@@ -264,6 +281,8 @@ function handleAddAction(action) {
     "add-tour": openTourModal,
     "add-day": openDayModal,
     "add-expense": openExpenseModal,
+    "add-packing-item": openPackingModal,
+    "add-quote": openQuoteModal,
   };
   if (map[action]) map[action]();
 }
@@ -1032,6 +1051,208 @@ async function syncItineraryForFlight(flight) {
   await loadDaysAndItems();
   renderDays();
   renderResumo();
+}
+
+// ================= CHECKLIST DA MALA =================
+async function loadPackingItems() {
+  const { data, error } = await sb.from("packing_items").select("*").order("ordem", { ascending: true }).order("created_at", { ascending: true });
+  if (error) { console.error(error); return; }
+  state.packingItems = data || [];
+}
+
+function renderPacking() {
+  const el = document.getElementById("list-packing");
+  const total = state.packingItems.length;
+  const prontos = state.packingItems.filter((i) => i.marcado).length;
+  const pct = total > 0 ? Math.round((prontos / total) * 100) : 0;
+  document.getElementById("packing-progress-label").textContent = `${prontos} de ${total} itens prontos`;
+  document.getElementById("packing-progress-pct").textContent = `${pct}%`;
+  document.getElementById("packing-progress-bar").style.width = pct + "%";
+
+  if (!total) { el.innerHTML = emptyState("Nenhum item na checklist ainda."); return; }
+
+  // Agrupa mantendo a ordem de primeira aparição (Documentação primeiro, por causa da "ordem" na migração)
+  const groups = [];
+  const byName = {};
+  state.packingItems.forEach((item) => {
+    if (!byName[item.categoria]) { byName[item.categoria] = []; groups.push(item.categoria); }
+    byName[item.categoria].push(item);
+  });
+
+  el.innerHTML = groups.map((cat) => {
+    const items = byName[cat];
+    const doneCat = items.filter((i) => i.marcado).length;
+    return `
+      <div class="packing-group">
+        <div class="packing-group-header">
+          <h3>${cat}</h3>
+          <span class="packing-group-count">${doneCat}/${items.length}</span>
+        </div>
+        ${items.map((i) => `
+          <div class="packing-item ${i.marcado ? "is-checked" : ""}">
+            <label class="packing-check">
+              <input type="checkbox" data-check="${i.id}" ${i.marcado ? "checked" : ""}/>
+              <span class="packing-item-text">${i.item}${i.obrigatorio ? ` <span class="badge badge-obrigatorio">providenciar</span>` : ""}</span>
+            </label>
+            <div class="item-actions">
+              <button data-edit-packing="${i.id}">Editar</button>
+              <button class="danger" data-del-packing="${i.id}">Excluir</button>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+
+  el.querySelectorAll("[data-check]").forEach((cb) => cb.addEventListener("change", async () => {
+    const id = cb.dataset.check;
+    const { error } = await sb.from("packing_items").update({ marcado: cb.checked }).eq("id", id);
+    if (error) { toast("Erro ao atualizar item"); return; }
+    await loadPackingItems();
+    renderPacking();
+  }));
+  el.querySelectorAll("[data-edit-packing]").forEach((b) => b.addEventListener("click", () => openPackingModal(state.packingItems.find((x) => x.id === b.dataset.editPacking))));
+  el.querySelectorAll("[data-del-packing]").forEach((b) => b.addEventListener("click", () => confirmDelete("packing_items", b.dataset.delPacking, loadPackingItems, renderPacking)));
+}
+
+const PACKING_CATEGORIAS = ["Documentação", "Roupas", "Higiene", "Eletrônicos e outros"];
+
+function openPackingModal(i = {}) {
+  openModal(i.id ? "Editar item" : "Novo item da mala", `
+    <div class="form-row"><label>Item</label><input id="p-item" value="${i.item || ""}" placeholder="ex: Protetor solar"/></div>
+    <div class="form-row"><label>Categoria</label>
+      <select id="p-categoria">
+        ${PACKING_CATEGORIAS.map((c) => `<option value="${c}" ${(i.categoria || PACKING_CATEGORIAS[0]) === c ? "selected" : ""}>${c}</option>`).join("")}
+      </select>
+    </div>
+    <div class="form-row"><label>Preciso providenciar com antecedência? (ex: documento, seguro)</label>
+      <select id="p-obrigatorio">
+        <option value="false" ${!i.obrigatorio ? "selected" : ""}>Não</option>
+        <option value="true" ${i.obrigatorio ? "selected" : ""}>Sim</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Notas</label><textarea id="p-notas">${i.notas || ""}</textarea></div>
+    <div class="modal-footer">
+      <button class="btn-save" id="p-save">Salvar</button>
+      ${i.id ? `<button class="btn-delete" id="p-del">Excluir</button>` : ""}
+    </div>
+  `);
+  document.getElementById("p-save").addEventListener("click", async () => {
+    const payload = {
+      item: val("p-item"), categoria: val("p-categoria"),
+      obrigatorio: val("p-obrigatorio") === "true", notas: val("p-notas"),
+    };
+    if (!payload.item) return toast("Informe o item");
+    let error;
+    if (i.id) ({ error } = await sb.from("packing_items").update(payload).eq("id", i.id));
+    else ({ error } = await sb.from("packing_items").insert({ ...payload, marcado: false }));
+    if (error) return toast("Erro ao salvar item");
+    closeModal(); toast("Item salvo"); await loadPackingItems(); renderPacking();
+  });
+  if (i.id) document.getElementById("p-del").addEventListener("click", () => confirmDelete("packing_items", i.id, loadPackingItems, renderPacking, true));
+}
+
+// ================= MONITOR DE PREÇO DE VOO (SJP → Calama) =================
+async function loadPriceWatch() {
+  const { data: watch, error: errW } = await sb.from("price_watches").select("*").order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (errW) { console.error(errW); return; }
+  state.priceWatch = watch || null;
+  if (state.priceWatch) {
+    const { data: quotes, error: errQ } = await sb.from("price_quotes").select("*").eq("watch_id", state.priceWatch.id).order("data_cotacao", { ascending: false });
+    if (errQ) { console.error(errQ); return; }
+    state.priceQuotes = quotes || [];
+  } else {
+    state.priceQuotes = [];
+  }
+}
+
+function renderPriceWatch() {
+  const alvoInput = document.getElementById("watch-alvo");
+  if (alvoInput) alvoInput.value = state.priceWatch?.preco_alvo ?? "";
+
+  const bestEl = document.getElementById("pricewatch-best");
+  if (state.priceQuotes.length) {
+    const best = state.priceQuotes.reduce((min, q) => (Number(q.preco) < Number(min.preco) ? q : min), state.priceQuotes[0]);
+    const alvo = Number(state.priceWatch?.preco_alvo || 0);
+    const dentroDoAlvo = alvo > 0 && Number(best.preco) <= alvo;
+    bestEl.classList.remove("hidden");
+    bestEl.innerHTML = `
+      <p class="pricewatch-best-label">${dentroDoAlvo ? "🔥 Dentro do preço-alvo!" : "Menor preço registrado"}</p>
+      <p class="pricewatch-best-value">${MONEY(best.preco, best.moeda)}${best.companhia ? " · " + best.companhia : ""}</p>
+      <p class="item-sub">${DATE_BR(best.data_cotacao)}${best.fonte ? " · " + best.fonte : ""}</p>
+    `;
+    bestEl.classList.toggle("pricewatch-hit", dentroDoAlvo);
+  } else {
+    bestEl.classList.add("hidden");
+  }
+
+  renderQuotes();
+}
+
+function renderQuotes() {
+  const el = document.getElementById("list-quotes");
+  if (!state.priceQuotes.length) { el.innerHTML = emptyState("Nenhuma cotação registrada ainda."); return; }
+  const alvo = Number(state.priceWatch?.preco_alvo || 0);
+  el.innerHTML = state.priceQuotes.map((q) => {
+    const dentroDoAlvo = alvo > 0 && Number(q.preco) <= alvo;
+    return `
+    <div class="item-card ${dentroDoAlvo || q.promocao ? "status-pago" : ""}">
+      <div class="item-top">
+        <div>
+          <p class="item-title">${q.companhia || "Cotação"} ${dentroDoAlvo ? "🔥" : q.promocao ? "🏷️" : ""}</p>
+          <p class="item-sub">${DATE_BR(q.data_cotacao)}${q.fonte ? " · " + q.fonte : ""}</p>
+        </div>
+        <span class="item-price">${MONEY(q.preco, q.moeda)}</span>
+      </div>
+      ${q.observacao ? `<p class="item-sub">${q.observacao}</p>` : ""}
+      <div class="item-actions">
+        <button data-edit-quote="${q.id}">Editar</button>
+        <button class="danger" data-del-quote="${q.id}">Excluir</button>
+      </div>
+    </div>
+  `;
+  }).join("");
+  el.querySelectorAll("[data-edit-quote]").forEach((b) => b.addEventListener("click", () => openQuoteModal(state.priceQuotes.find((x) => x.id === b.dataset.editQuote))));
+  el.querySelectorAll("[data-del-quote]").forEach((b) => b.addEventListener("click", () => confirmDelete("price_quotes", b.dataset.delQuote, loadPriceWatch, renderPriceWatch)));
+}
+
+function openQuoteModal(q = {}) {
+  openModal(q.id ? "Editar cotação" : "Registrar cotação", `
+    <div class="form-grid-2">
+      <div class="form-row"><label>Preço (ida e volta)</label><input type="number" step="0.01" id="q-preco" value="${q.preco ?? ""}"/></div>
+      <div class="form-row"><label>Data da cotação</label><input type="date" id="q-data" value="${q.data_cotacao || new Date().toISOString().slice(0, 10)}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-row"><label>Companhia</label><input id="q-cia" value="${q.companhia || ""}" placeholder="ex: LATAM"/></div>
+      <div class="form-row"><label>Fonte</label><input id="q-fonte" value="${q.fonte || ""}" placeholder="ex: Google Flights"/></div>
+    </div>
+    <div class="form-row"><label>É uma promoção?</label>
+      <select id="q-promocao">
+        <option value="false" ${!q.promocao ? "selected" : ""}>Não</option>
+        <option value="true" ${q.promocao ? "selected" : ""}>Sim</option>
+      </select>
+    </div>
+    <div class="form-row"><label>Observação</label><textarea id="q-obs">${q.observacao || ""}</textarea></div>
+    <div class="modal-footer">
+      <button class="btn-save" id="q-save">Salvar</button>
+      ${q.id ? `<button class="btn-delete" id="q-del">Excluir</button>` : ""}
+    </div>
+  `);
+  document.getElementById("q-save").addEventListener("click", async () => {
+    const payload = {
+      preco: Number(val("q-preco") || 0), data_cotacao: val("q-data") || null,
+      companhia: val("q-cia"), fonte: val("q-fonte"), observacao: val("q-obs"),
+      promocao: val("q-promocao") === "true", watch_id: state.priceWatch?.id || null,
+    };
+    if (!payload.preco) return toast("Informe o preço");
+    if (!payload.watch_id) return toast("Monitor de preço não encontrado");
+    let error;
+    if (q.id) ({ error } = await sb.from("price_quotes").update(payload).eq("id", q.id));
+    else ({ error } = await sb.from("price_quotes").insert(payload));
+    if (error) return toast("Erro ao salvar cotação");
+    closeModal(); toast("Cotação salva"); await loadPriceWatch(); renderPriceWatch();
+  });
+  if (q.id) document.getElementById("q-del").addEventListener("click", () => confirmDelete("price_quotes", q.id, loadPriceWatch, renderPriceWatch, true));
 }
 
 document.addEventListener("DOMContentLoaded", initPinGate);
