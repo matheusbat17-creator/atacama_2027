@@ -592,7 +592,13 @@ function renderDays() {
   const el = document.getElementById("list-days");
   if (!state.days.length) { el.innerHTML = emptyState("Nenhum dia no roteiro ainda. Adicione o primeiro dia da viagem."); return; }
   el.innerHTML = state.days.map(d => {
-    const items = state.items.filter(i => i.day_id === d.id);
+    const items = state.items.filter(i => i.day_id === d.id).slice().sort((a, b) => {
+      const ta = itemStartMinutes(a.horario), tb = itemStartMinutes(b.horario);
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1; // itens sem horário definido vão para o fim
+      if (tb == null) return -1;
+      return ta - tb;
+    });
     return `
     <div class="day-card">
       <div class="day-head">
@@ -834,6 +840,14 @@ function hhmmToMinutes(str) {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(str || "").trim());
   if (!m) return null;
   return Number(m[1]) * 60 + Number(m[2]);
+}
+
+// Extrai o horário de início de um texto de horário do roteiro, que pode ser
+// um horário simples ("15:30") ou um intervalo ("02:00–05:00").
+function itemStartMinutes(horario) {
+  if (!horario) return null;
+  const first = String(horario).split("–")[0].trim();
+  return hhmmToMinutes(first);
 }
 
 function formatRange(startMin, endMin) {
