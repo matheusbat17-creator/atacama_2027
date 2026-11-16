@@ -688,7 +688,10 @@ async function loadDaysAndItems() {
 function renderDays() {
   const el = document.getElementById("list-days");
   if (!state.days.length) { el.innerHTML = emptyState("Nenhum dia no roteiro ainda. Adicione o primeiro dia da viagem."); return; }
-  el.innerHTML = state.days.map(d => {
+  // state.days já vem ordenado por data (ver loadDaysAndItems) — o "Dia N" exibido segue
+  // essa ordem cronológica, nunca a ordem em que os dias foram cadastrados.
+  const diasOrdenados = state.days.slice().sort((a, b) => (a.data || "").localeCompare(b.data || ""));
+  el.innerHTML = diasOrdenados.map((d, idx) => {
     const items = state.items.filter(i => i.day_id === d.id).slice().sort((a, b) => {
       const ta = itemStartMinutes(a.horario), tb = itemStartMinutes(b.horario);
       if (ta == null && tb == null) return 0;
@@ -700,7 +703,7 @@ function renderDays() {
     <div class="day-card">
       <div class="day-head">
         <div>
-          <h3>Dia ${d.numero_dia}${d.titulo ? " · " + d.titulo : ""}</h3>
+          <h3>Dia ${idx + 1}${d.titulo ? " · " + d.titulo : ""}</h3>
           <p class="day-date">${DATE_BR(d.data)}</p>
         </div>
         <div class="item-actions" style="margin:0; gap:6px;">
@@ -735,12 +738,11 @@ function renderDays() {
 }
 
 function openDayModal(d = {}) {
+  // numero_dia continua sendo gravado no banco (a coluna não aceita nulo), mas não é mais
+  // usado para exibir o "Dia N" — isso agora é sempre calculado pela ordem das datas.
   const nextNum = d.numero_dia || (state.days.length + 1);
   openModal(d.id ? "Editar dia" : "Novo dia do roteiro", `
-    <div class="form-grid-2">
-      <div class="form-row"><label>Data</label><input type="date" id="d-data" value="${d.data || ""}"/></div>
-      <div class="form-row"><label>Nº do dia</label><input type="number" id="d-num" value="${nextNum}"/></div>
-    </div>
+    <div class="form-row"><label>Data</label><input type="date" id="d-data" value="${d.data || ""}"/></div>
     <div class="form-row"><label>Título</label><input id="d-titulo" placeholder="ex: Vale da Lua e Pôr do sol" value="${d.titulo || ""}"/></div>
     <div class="form-row"><label>Resumo</label><textarea id="d-resumo">${d.resumo || ""}</textarea></div>
     <div class="modal-footer">
@@ -749,7 +751,7 @@ function openDayModal(d = {}) {
     </div>
   `);
   document.getElementById("d-save").addEventListener("click", async () => {
-    const payload = { data: val("d-data") || null, numero_dia: Number(val("d-num") || nextNum), titulo: val("d-titulo"), resumo: val("d-resumo") };
+    const payload = { data: val("d-data") || null, numero_dia: nextNum, titulo: val("d-titulo"), resumo: val("d-resumo") };
     if (!payload.data) return toast("Informe a data do dia");
     let error;
     if (d.id) ({ error } = await sb.from("itinerary_days").update(payload).eq("id", d.id));
@@ -968,13 +970,26 @@ function formatRange(startMin, endMin) {
   return `${fmt(startMin)}–${fmt(endMin)}`;
 }
 
-function tourToInterval(t) {
-  if (!t.data || !t.horario) return null;
-  const start = hhmmToMinutes(t.horario);
+// Converte o texto de horário de uma ocorrência ("HH:MM–HH:MM" ou "HH:MM–HH:MM (dia X/Y)")
+// de volta em minutos de início/fim, para checagem de conflito.
+function rangeToMinutes(horario) {
+  const clean = String(horario || "").replace(/\s*\(dia \d+\/\d+\)\s*$/, "");
+  const [p1, p2] = clean.split("–");
+  const start = hhmmToMinutes(p1);
   if (start == null) return null;
-  const dur = Number(t.duracao_horas) || 1;
-  const end = start + dur * 60;
-  return { date: t.data, start, end, label: `⛰ ${t.nome}`, range: formatRange(start, end) };
+  let end = p2 ? hhmmToMinutes(p2) : start + 60;
+  if (end != null && end <= start) end += 1440; // intervalo que passa da meia-noite
+  return { start, end: end ?? start + 60 };
+}
+
+// Um passeio pode ocupar vários dias (quando dura mais de 24h) — retorna um
+// intervalo {date,start,end} por dia que ele ocupa, para checagem de conflito.
+function tourToIntervals(t) {
+  return tourDayOccurrences(t).map((occ) => {
+    const m = rangeToMinutes(occ.horario);
+    if (!m) return null;
+    return { date: occ.date, start: m.start, end: m.end, label: `⛰ ${t.nome}`, range: occ.horario };
+  }).filter(Boolean);
 }
 
 function flightToInterval(f) {
@@ -997,8 +1012,7 @@ function findConflicts(date, start, end, exclude = null) {
   const intervals = [];
   state.tours.forEach((t) => {
     if (exclude?.type === "tour" && exclude.id === t.id) return;
-    const iv = tourToInterval(t);
-    if (iv && iv.date === date) intervals.push(iv);
+    tourToIntervals(t).forEach((iv) => { if (iv.date === date) intervals.push(iv); });
   });
   state.flights.forEach((f) => {
     if (exclude?.type === "flight" && exclude.id === f.id) return;
@@ -1023,8 +1037,10 @@ async function ensureDayForDate(date) {
   return data;
 }
 
+// Agora que um passeio pode ter um espelho em VÁRIOS dias (quando dura mais de 24h),
+// a identidade de cada espelho passa a ser (tour_id/flight_id + day_id), não só o tour/voo.
 async function upsertMirroredItem({ day_id, horario, titulo, tipo, tour_id = null, flight_id = null }) {
-  const existing = state.items.find((i) => (flight_id && i.flight_id === flight_id) || (tour_id && i.tour_id === tour_id));
+  const existing = state.items.find((i) => i.day_id === day_id && ((flight_id && i.flight_id === flight_id) || (tour_id && i.tour_id === tour_id)));
   const payload = { day_id, horario, titulo, tipo, tour_id, flight_id };
   if (existing) {
     const { error } = await sb.from("itinerary_items").update(payload).eq("id", existing.id);
@@ -1037,23 +1053,79 @@ async function upsertMirroredItem({ day_id, horario, titulo, tipo, tour_id = nul
 }
 
 async function removeMirroredItem(flight_id, tour_id) {
-  const existing = state.items.find((i) => (flight_id && i.flight_id === flight_id) || (tour_id && i.tour_id === tour_id));
-  if (existing) await sb.from("itinerary_items").delete().eq("id", existing.id);
+  const col = flight_id ? "flight_id" : "tour_id";
+  const id = flight_id || tour_id;
+  await sb.from("itinerary_items").delete().eq(col, id);
 }
 
-// Cria/atualiza automaticamente o item correspondente no roteiro sempre
-// que um passeio é salvo — criando o dia, se ainda não existir.
+// Remove os espelhos de um passeio/voo que sobraram em dias que não fazem mais parte
+// dele (ex: duração foi reduzida, ou a data mudou) — mantém só os dias em keepDayIds.
+async function removeMirroredItemsExcept(tour_id, flight_id, keepDayIds) {
+  const col = flight_id ? "flight_id" : "tour_id";
+  const id = flight_id || tour_id;
+  let query = sb.from("itinerary_items").delete().eq(col, id);
+  if (keepDayIds.length) query = query.not("day_id", "in", `(${keepDayIds.join(",")})`);
+  const { error } = await query;
+  if (error) console.error(error);
+}
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function fmtHM(totalMin) {
+  const mm = ((totalMin % 1440) + 1440) % 1440;
+  return `${pad2(Math.floor(mm / 60))}:${pad2(mm % 60)}`;
+}
+// Soma k dias a uma data "YYYY-MM-DD" sem depender do fuso horário local.
+function addDaysStr(dateStr, k) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + k);
+  return dt.toISOString().slice(0, 10);
+}
+
+// Calcula em quais dias um passeio aparece e com qual horário em cada um.
+// Passeios de até 24h aparecem só no dia de início (comportamento de sempre).
+// Passeios com mais de 24h (ex: trekking de vários dias) são "duplicados":
+// aparecem em cada dia que ocupam, com o trecho daquele dia e a marcação "dia X/Y".
+function tourDayOccurrences(tour) {
+  if (!tour.data) return [];
+  const start = tour.horario ? hhmmToMinutes(tour.horario) : null;
+  const dur = Number(tour.duracao_horas) || null;
+  if (start == null) return [{ date: tour.data, horario: tour.horario || "" }];
+  if (!dur || dur <= 24) return [{ date: tour.data, horario: formatRange(start, start + dur * 60) }];
+
+  const fimGlobal = start + dur * 60;
+  const diasTotais = Math.ceil(fimGlobal / 1440); // considera o horário de início, não só a duração
+  const ocorrencias = [];
+  for (let k = 0; k < diasTotais; k++) {
+    const inicioDiaG = k * 1440, fimDiaG = (k + 1) * 1440;
+    const segStart = Math.max(inicioDiaG, start);
+    const segEnd = Math.min(fimDiaG, fimGlobal);
+    if (segStart >= segEnd) continue;
+    const localStart = segStart - inicioDiaG;
+    const localEnd = segEnd - inicioDiaG;
+    const horario = `${fmtHM(localStart)}–${localEnd >= 1440 ? "23:59" : fmtHM(localEnd)} (dia ${k + 1}/${diasTotais})`;
+    ocorrencias.push({ date: addDaysStr(tour.data, k), horario });
+  }
+  return ocorrencias;
+}
+
+// Cria/atualiza automaticamente o(s) item(ns) correspondente(s) no roteiro sempre
+// que um passeio é salvo — criando o(s) dia(s), se ainda não existirem, e duplicando
+// o passeio em cada dia que ele ocupa quando dura mais de 24h.
 async function syncItineraryForTour(tour) {
-  if (!tour.data) {
+  const ocorrencias = tourDayOccurrences(tour);
+  if (!ocorrencias.length) {
     await removeMirroredItem(null, tour.id);
   } else {
-    const day = await ensureDayForDate(tour.data);
-    if (day) {
-      const start = tour.horario ? hhmmToMinutes(tour.horario) : null;
-      const dur = Number(tour.duracao_horas) || null;
-      const horarioLabel = start != null ? (dur ? formatRange(start, start + dur * 60) : tour.horario) : (tour.horario || "");
-      await upsertMirroredItem({ day_id: day.id, horario: horarioLabel, titulo: `⛰ ${tour.nome}`, tipo: "passeio", tour_id: tour.id });
+    const keepDayIds = [];
+    for (const occ of ocorrencias) {
+      const day = await ensureDayForDate(occ.date);
+      if (day) {
+        keepDayIds.push(day.id);
+        await upsertMirroredItem({ day_id: day.id, horario: occ.horario, titulo: `⛰ ${tour.nome}`, tipo: "passeio", tour_id: tour.id });
+      }
     }
+    await removeMirroredItemsExcept(tour.id, null, keepDayIds);
   }
   await loadDaysAndItems();
   renderDays();
