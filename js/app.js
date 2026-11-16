@@ -39,10 +39,19 @@ function toast(msg) {
 }
 
 // ---------------- PIN GATE ----------------
+// Acesso a sessionStorage pode ser bloqueado em alguns contextos
+// (ex: sandbox de artefatos). Essas funções nunca lançam erro.
+function safeGetSession(key) {
+  try { return sessionStorage.getItem(key); } catch (e) { return null; }
+}
+function safeSetSession(key, value) {
+  try { sessionStorage.setItem(key, value); } catch (e) { /* ignora: sem persistência de sessão neste contexto */ }
+}
+
 function initPinGate() {
   const gate = document.getElementById("pin-gate");
   const app = document.getElementById("app");
-  const unlocked = sessionStorage.getItem("atacama_unlocked") === "1";
+  const unlocked = safeGetSession("atacama_unlocked") === "1";
 
   if (unlocked) {
     gate.classList.add("hidden");
@@ -58,8 +67,9 @@ function initPinGate() {
 
   function tryUnlock() {
     const val = document.getElementById("pin-input").value.trim();
-    if (val === String(window.APP_PIN)) {
-      sessionStorage.setItem("atacama_unlocked", "1");
+    const expectedPin = String(window.APP_PIN ?? "2027"); // fallback caso config.js não tenha carregado
+    if (val === expectedPin) {
+      safeSetSession("atacama_unlocked", "1");
       gate.classList.add("hidden");
       app.classList.remove("hidden");
       boot();
